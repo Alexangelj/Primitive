@@ -51,7 +51,8 @@ contract('Exchange', accounts => {
         _burnId,
         _collateralID,
         _exchange,
-        primeAddress
+        primeAddress,
+        val
         ;
 
     async function getGas(func, name) {
@@ -61,7 +62,6 @@ contract('Exchange', accounts => {
 
     async function getBal(contract, address, name, units) {
         let bal = (await web3.utils.fromWei((await contract.balanceOf(address)).toString()));
-        console.log(`${name} has in bank:`, await web3.utils.fromWei(await _prime.getBalance(Alice, contract.address)))
         console.log(`${name} has a balance of ${bal} ${units}.`);
     }
 
@@ -99,6 +99,7 @@ contract('Exchange', accounts => {
         await _tUSD.mint(Alice, payment);
         await _tETH.mint(Bob, payment);
         await _tUSD.mint(Bob, payment);
+        val = (9*10**18).toString();
 
     });
     
@@ -126,7 +127,7 @@ contract('Exchange', accounts => {
 
         let buyerBal = await web3.utils.fromWei(await web3.eth.getBalance(buyer));
         let sellerBal =  await web3.utils.fromWei(await web3.eth.getBalance(seller));
-        let bidPrice = (5*10**17).toString(); // 0.5 eth
+        let bidPrice = (5*10**18).toString(); // 0.5 eth
         let askPrice = (10**17).toString(); // 0.1 eth
         let netPrice = ((bidPrice - askPrice) / 10**18).toString();
 
@@ -135,7 +136,7 @@ contract('Exchange', accounts => {
         
 
         /* BOB SUBMITS BUY ORDER FOR TOKEN */
-        let buyOrder = await _exchange.buyOrder(tokenId, bidPrice, {from: buyer, value: bidPrice});
+        let buyOrder = await _exchange.buyOrder(tokenId, bidPrice, {from: buyer, value: val});
 
         /* ALICE SUBMITS SELL ORDER FOR TOKEN */
         let sellOrder = await _exchange.sellOrder(tokenId, askPrice, {from: seller});
@@ -172,15 +173,15 @@ contract('Exchange', accounts => {
         }
 
         async function buyOrder(address, bid, tokenId) {
-            let bidPrice = (bid*10**18).toString(); // 0.5 eth
+            let bidPrice = (bid*10**17).toString(); // 0.5 eth
 
             /* ADDRESS SUBMITS BUY ORDER FOR TOKEN */
-            let buyOrder = await _exchange.buyOrder(tokenId, bidPrice, {from: address, value: bidPrice});
+            let buyOrder = await _exchange.buyOrder(tokenId, bidPrice, {from: address, value: val});
             return buyOrder;
         }
 
         async function sellOrder(address, ask, tokenId) {
-            let askPrice = (ask*10**18).toString(); // 0.5 eth
+            let askPrice = (ask*10**17).toString(); // 0.5 eth
             /* ADDRESS APPROVES EXCHANGE TO SELL TOKEN */
             await _prime.approve(_exchange.address, tokenId, {from: address});
 
@@ -277,8 +278,67 @@ contract('Exchange', accounts => {
 
         let aliceToken1 = await mintPrime(Alice);
 
-        let chain = await _prime.getChain(aliceToken1);
+        let chain = (await _prime.getChain(aliceToken1));
         console.log({chain})
+    });
+
+    it('fill unfilled buy order', async () => {
+        async function mintPrime(address) {
+            let xis, yak, zed, wax, pow, gem;
+            xis = collateral;
+            yak = _tETH.address;
+            zed = payment;
+            wax = _tUSD.address;
+            pow = '1600473585';
+            gem = _exchange.address;
+
+            /* TOKEN MINTED TO ADDRESS */
+            let mint = await _prime.createPrime(xis, yak, zed, wax, pow, gem, {from: address});
+            let tokenId = await _prime.nonce();
+            return tokenId;
+        }
+        let xis, yak, zed, wax, pow, gem;
+        xis = collateral;
+        yak = _tETH.address;
+        zed = payment;
+        wax = _tUSD.address;
+        pow = '1600473585';
+        gem = _exchange.address;
+
+        let aliceToken1 = await mintPrime(Alice);
+        let aliceToken2 = await mintPrime(Alice);
+        let chain = (await _prime.getChain(aliceToken1));
+        ask = 0.25;
+        let bid = await web3.utils.toWei((ask).toString());
+        let unfilled = await _exchange.buyOrderUnfilled(
+            bid,
+            xis, 
+            yak, 
+            zed, 
+            wax, 
+            pow, 
+            {from: Bob, value: val});
+        console.log((unfilled.logs[0].args._bidPrice).toString())
+        let bidPrice = (unfilled.logs[0].args._bidPrice).toString()
+        
+        async function sellOrder(address, ask, tokenId) {
+            let askPrice = await web3.utils.toWei((ask).toString()); // 0.5 eth
+            console.log({askPrice})
+            assert.strictEqual(bidPrice, askPrice, 'BID NOT EQUAL ASK');
+            
+            /* ADDRESS APPROVES EXCHANGE TO SELL TOKEN */
+            await _prime.approve(_exchange.address, tokenId, {from: address});
+
+            /* ADDRESS SUBMITS BUY ORDER FOR TOKEN */
+            let sellOrder = await _exchange.sellOrder(tokenId, askPrice, {from: address});
+            return sellOrder;
+        }
+
+        let sell = await sellOrder(Alice, ask, aliceToken1)
+        let bobOwns = await _prime.ownerOf(aliceToken1, {from: Bob});
+        console.log({bobOwns, Bob})
+        console.log(sell)
+        
     });
 
     it('fill unfilled buy order', async () => {
@@ -309,7 +369,15 @@ contract('Exchange', accounts => {
         let chain = await _prime.getChain(aliceToken1);
         ask = 0.25;
         let bid = await web3.utils.toWei((ask).toString());
-        let unfilled = await _exchange.buyOrderUnfilled(bid, chain, xis, yak, zed, wax, pow, {from: Bob, value: bid});
+        let unfilled = await _exchange.buyOrderUnfilled(
+            bid,
+            xis,
+            yak,
+            zed,
+            wax,
+            pow,
+            {from: Bob, value: val}
+        );
         console.log((unfilled.logs[0].args._bidPrice).toString())
         let bidPrice = (unfilled.logs[0].args._bidPrice).toString()
         
@@ -327,10 +395,21 @@ contract('Exchange', accounts => {
         }
 
         let sell = await sellOrder(Alice, ask, aliceToken1)
+
+        async function buyOrder(address, bid, tokenId) {
+            let bidPrice = (bid*10**18).toString(); // 0.5 eth
+
+            /* ADDRESS SUBMITS BUY ORDER FOR TOKEN */
+            let buyOrder = await _exchange.buyOrder(tokenId, bidPrice, {from: address, value: val});
+            return buyOrder;
+        }
+
+        let buy2 = await buyOrder(Bob, 0.1, aliceToken2)
+
+        let sell2 = await sellOrder(Alice, ask, aliceToken2)
         let bobOwns = await _prime.ownerOf(aliceToken1, {from: Bob});
         console.log({bobOwns, Bob})
         console.log(sell)
-        
     });
 
 })
